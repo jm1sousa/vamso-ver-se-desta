@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FormFiller Auto",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "Preenche formulários automaticamente com respostas aleatórias para testes",
   "permissions": ["activeTab", "storage", "scripting"],
   "action": {
