@@ -21,7 +21,7 @@
     .status-indicator.error { background: #ef4444; }
     .status-indicator.complete { background: #818cf8; }
     .status-indicator.waiting { background: #f59e0b; animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
     .stats { text-align: center; margin-bottom: 12px; }
     .stat-value { font-size: 32px; font-weight: 700; color: #818cf8; }
     .stat-label { display: block; font-size: 11px; color: #9ca3af; }
@@ -85,6 +85,7 @@
     const delayInput = document.getElementById('delay');
     const submitDelayInput = document.getElementById('submitDelay');
 
+    // Carrega configurações e estado
     chrome.storage.local.get(['settings', 'stats', 'isRunning'], (data) => {
       if (data.settings) {
         delayInput.value = data.settings.delay || 300;
