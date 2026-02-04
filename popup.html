@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #eaeaea;
+    }
+    .container { padding: 16px; }
+    h1 { font-size: 16px; margin-bottom: 12px; text-align: center; }
+    .status-bar {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 12px;
+    }
+    .status-indicator { width: 10px; height: 10px; border-radius: 50%; background: #6b7280; }
+    .status-indicator.running { background: #22c55e; animation: pulse 1s infinite; }
+    .status-indicator.error { background: #ef4444; }
+    .status-indicator.complete { background: #818cf8; }
+    .status-indicator.waiting { background: #f59e0b; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .stats { text-align: center; margin-bottom: 12px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: #818cf8; }
+    .stat-label { display: block; font-size: 11px; color: #9ca3af; }
+    .settings { margin-bottom: 12px; }
+    .setting { margin-bottom: 8px; }
+    .setting label { display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
+    .setting input {
+      width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px;
+      background: rgba(255,255,255,0.05); color: #eaeaea; font-size: 13px;
+    }
+    .controls { display: flex; gap: 8px; }
+    .btn {
+      flex: 1; padding: 10px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-start { background: #818cf8; color: white; }
+    .btn-start:hover:not(:disabled) { background: #6366f1; }
+    .btn-stop { background: #ef4444; color: white; }
+    .btn-stop:hover:not(:disabled) { background: #dc2626; }
+    .btn-resume { background: #f59e0b; color: white; }
+    .btn-resume:hover:not(:disabled) { background: #d97706; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 FormFiller Auto</h1>
+    <div class="status-bar">
+      <span class="status-indicator" id="statusIndicator"></span>
+      <span id="statusText">Parado</span>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-value" id="filledCount">0</span>
+        <span class="stat-label">Páginas preenchidas</span>
+      </div>
+    </div>
+    <div class="settings">
+      <div class="setting">
+        <label for="delay">Atraso entre campos (ms)</label>
+        <input type="number" id="delay" value="300" min="50" max="2000">
+      </div>
+      <div class="setting">
+        <label for="submitDelay">Atraso antes de submeter (ms)</label>
+        <input type="number" id="submitDelay" value="500" min="100" max="5000">
+      </div>
+    </div>
+    <div class="controls">
+      <button id="startBtn" class="btn btn-start">▶ Iniciar</button>
+      <button id="stopBtn" class="btn btn-stop" disabled>⏹ Parar</button>
+      <button id="resumeBtn" class="btn btn-resume" style="display: none;">↻ Retomar</button>
+    </div>
+  </div>
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const filledCount = document.getElementById('filledCount');
+    const delayInput = document.getElementById('delay');
+    const submitDelayInput = document.getElementById('submitDelay');
+
+    chrome.storage.local.get(['settings', 'stats', 'isRunning'], (data) => {
+      if (data.settings) {
+        delayInput.value = data.settings.delay || 300;
+        submitDelayInput.value = data.settings.submitDelay || 500;
+      }
+      if (data.stats) filledCount.textContent = data.stats.filledCount || 0;
+      if (data.isRunning) updateUIRunning(true);
+      checkResumeState();
+    });
+
+    async function checkResumeState() {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) return;
+      try {
+        chrome.tabs.sendMessage(tab.id, { action: 'getState' }, (response) => {
+          if (chrome.runtime.lastError) { resumeBtn.style.display = 'none'; return; }
+          if (response && response.hasState) {
+            resumeBtn.style.display = 'block';
+            resumeBtn.title = `Retomar (${response.state.filledCount} páginas)`;
+          } else { resumeBtn.style.display = 'none'; }
+        });
+      } catch (e) { resumeBtn.style.display = 'none'; }
+    }
+
+    function saveSettings() {
+      chrome.storage.local.set({ settings: {
+        delay: parseInt(delayInput.value) || 300,
+        submitDelay: parseInt(submitDelayInput.value) || 500
+      }});
+    }
+
+    delayInput.addEventListener('change', saveSettings);
+    submitDelayInput.addEventListener('change', saveSettings);
+
+    function updateUIRunning(running, status = 'running') {
+      if (running) {
+        statusIndicator.classList.add('running');
+        statusIndicator.classList.remove('error', 'complete', 'waiting');
+        if (status === 'complete') { statusIndicator.classList.add('complete'); statusText.textContent = 'Completo!'; }
+        else if (status === 'waiting') { statusIndicator.classList.add('waiting'); statusText.textContent = 'A aguardar...'; }
+        else { statusText.textContent = 'A preencher...'; }
+        startBtn.disabled = true; stopBtn.disabled = false; resumeBtn.disabled = true;
+      } else {
+        statusIndicator.classList.remove('running', 'complete', 'waiting');
+        statusText.textContent = 'Parado';
+        startBtn.disabled = false; stopBtn.disabled = true; resumeBtn.disabled = false;
+      }
+    }
+
+    startBtn.addEventListener('click', async () => { saveSettings(); await startFilling(false); });
+    resumeBtn.addEventListener('click', async () => { saveSettings(); await startFilling(true); });
+
+    async function startFilling(resume = false) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) { statusText.textContent = 'Erro: Nenhuma aba'; statusIndicator.classList.add('error'); return; }
+      chrome.storage.local.set({ isRunning: true, stats: resume ? undefined : { filledCount: 0 } });
+      updateUIRunning(true);
+      chrome.tabs.sendMessage(tab.id, { action: 'start', settings: {
+        delay: parseInt(delayInput.value) || 300,
+        submitDelay: parseInt(submitDelayInput.value) || 500
+      }, resume });
+    }
+
+    stopBtn.addEventListener('click', async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      chrome.storage.local.set({ isRunning: false });
+      updateUIRunning(false);
+      if (tab) chrome.tabs.sendMessage(tab.id, { action: 'stop' });
+      setTimeout(checkResumeState, 500);
+    });
+
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'statsUpdate') {
+        filledCount.textContent = msg.filledCount;
+        if (msg.status === 'complete') updateUIRunning(true, 'complete');
+        else if (msg.status === 'waiting') updateUIRunning(true, 'waiting');
+        chrome.storage.local.set({ stats: { filledCount: msg.filledCount } });
+      }
+      if (msg.type === 'stopped') { updateUIRunning(false); chrome.storage.local.set({ isRunning: false }); setTimeout(checkResumeState, 500); }
+      if (msg.type === 'error') { statusIndicator.classList.add('error'); statusText.textContent = msg.message; }
+    });
+  </script>
+</body>
+</html>
