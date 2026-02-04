@@ -38,10 +38,18 @@
     if (c.includes('postal') || c.includes('zip')) return `${Math.floor(Math.random()*9000)+1000}-${Math.floor(Math.random()*900)+100}`;
     if (c.includes('company') || c.includes('empresa')) return ['Tech','Global','Digital'][Math.floor(Math.random()*3)] + ' Corp';
     if (c.includes('age') || c.includes('idade') || t==='number') return (Math.floor(Math.random()*50)+18).toString();
-    if (t==='date' || c.includes('birth') || c.includes('nascimento')) {
-      const d = new Date(1970+Math.floor(Math.random()*50), Math.floor(Math.random()*12), 1+Math.floor(Math.random()*28));
+    if (t==='date') {
       // HTML date inputs expect YYYY-MM-DD
+      const d = new Date(1970+Math.floor(Math.random()*50), Math.floor(Math.random()*12), 1+Math.floor(Math.random()*28));
       return d.toISOString().split('T')[0];
+    }
+    if (c.includes('birth') || c.includes('nascimento') || c.includes('data')) {
+      // For text-based date fields, return numeric DDMMYYYY (user requested numbers)
+      const d = new Date(1970+Math.floor(Math.random()*50), Math.floor(Math.random()*12), 1+Math.floor(Math.random()*28));
+      const dd = String(d.getDate()).padStart(2,'0');
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const yyyy = String(d.getFullYear());
+      return `${dd}${mm}${yyyy}`; // e.g. 01011990
     }
     return "Teste automático";
   }
@@ -54,31 +62,56 @@
     }
   }
 
+  async function typeValueInto(el, v){
+    el.focus();
+    if (el.value !== undefined) el.value = '';
+    for (let i=0;i<v.length;i++){
+      if (el.value !== undefined) el.value = v.substring(0, i+1);
+      dispatchInput(el);
+      await sleep(settings.delay || 200);
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.blur();
+  }
+
   async function fillField(f){
     if (!f) return;
+    // handle inputs that are backed by a datalist (dropdown-like)
+    const listId = f.getAttribute && f.getAttribute('list');
+    if (listId) {
+      const datalist = document.getElementById(listId);
+      if (datalist) {
+        const opt = datalist.querySelector('option[value]');
+        if (opt) { await typeValueInto(f, opt.value); return; }
+      }
+    }
+
     let v = getValue(f);
     if (!v) return;
     if (f.type === 'number') v = v.replace(/\D/g,'');
-    f.focus();
-    // Clear then simulate typing
-    f.value = '';
-    for (let i=0;i<v.length;i++){
-      f.value = v.substring(0, i+1);
-      dispatchInput(f);
-      await sleep(settings.delay || 200);
+
+    // For inputs of type date, set directly (better than typing)
+    if (f.type === 'date' && f.value !== undefined) {
+      f.focus();
+      f.value = v; // v already YYYY-MM-DD
+      f.dispatchEvent(new Event('input', { bubbles: true }));
+      f.dispatchEvent(new Event('change', { bubbles: true }));
+      f.blur();
+      return;
     }
-    f.dispatchEvent(new Event('change', { bubbles: true }));
-    f.blur();
+
+    await typeValueInto(f, v);
   }
 
   function fillSelect(s){
     if (!s) return;
     const opts = [...s.options].filter(o=>o.value && !o.disabled);
     if (opts.length) {
-      // choose first non-empty value (better than index 0 placeholder)
+      // choose first non-empty value (user requested first option)
       const idx = [...s.options].findIndex(o=>o.value && !o.disabled);
       if (idx >= 0) s.selectedIndex = idx;
       s.dispatchEvent(new Event('change', { bubbles: true }));
+      s.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
   }
 
@@ -110,74 +143,115 @@
     chrome.storage.local.set({ fillerState: savedState });
   }
 
+  function isControlFilled(ctrl){
+    if (!isVisible(ctrl) || ctrl.disabled) return true; // ignore invisible or disabled
+    if (ctrl.tagName.toLowerCase() === 'select') return !!ctrl.value;
+    if (ctrl.type === 'checkbox') return !!ctrl.checked;
+    if (ctrl.type === 'radio') return true; // radios handled per-group
+    if (ctrl.tagName.toLowerCase() === 'textarea') return !!ctrl.value;
+    if (ctrl.type === 'hidden') return true;
+    // inputs
+    return !!ctrl.value;
+  }
+
   async function fillPage(){
-    if (!isRunning) return false;
-    const inputs = document.querySelectorAll('input,textarea');
-    const selects = document.querySelectorAll('select');
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-    const radioNodes = document.querySelectorAll('input[type="radio"]');
+    if (!isRunning) return { filled: false, allFilled: false };
+    const inputs = Array.from(document.querySelectorAll('input,textarea'));
+    const selects = Array.from(document.querySelectorAll('select'));
+    const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+    const radioNodes = Array.from(document.querySelectorAll('input[type="radio"]'));
+
     const radios = {};
     radioNodes.forEach(r=>{ if(!radios[r.name]) radios[r.name]=[]; radios[r.name].push(r); });
 
     let filled = false;
+
+    // Fill inputs and textareas (including datalist-backed inputs)
     for (const f of inputs){
-      if (!isRunning) return false;
+      if (!isRunning) return { filled, allFilled: false };
       if (!isVisible(f) || f.disabled || f.readOnly) continue;
-      // don't overwrite inputs that already have values
-      if ((f.type !== 'checkbox' && f.type !== 'radio') && f.value) continue;
+      if (f.type === 'checkbox' || f.type === 'radio') continue;
+      if (f.value) continue; // don't overwrite
       await fillField(f);
       filled = true;
       await sleep(settings.delay || 300);
     }
+
+    // Selects
     for (const s of selects){
-      if (!isRunning) return false;
-      if (isVisible(s) && !s.disabled) { fillSelect(s); filled = true; await sleep(settings.delay || 200); }
+      if (!isRunning) return { filled, allFilled: false };
+      if (isVisible(s) && !s.disabled && !s.value) { fillSelect(s); filled = true; await sleep(settings.delay || 200); }
     }
+
+    // Checkboxes
     for (const c of checkboxes){
-      if (!isRunning) return false;
-      if (isVisible(c) && !c.disabled) { fillCheckbox(c); filled = true; await sleep(100); }
+      if (!isRunning) return { filled, allFilled: false };
+      if (isVisible(c) && !c.disabled && !c.checked) { fillCheckbox(c); filled = true; await sleep(100); }
     }
+
+    // Radios
     for (const name in radios){
-      if (!isRunning) return false;
+      if (!isRunning) return { filled, allFilled: false };
       const group = radios[name].filter(r=>isVisible(r) && !r.disabled);
       if (group.length && !group.some(r=>r.checked)){ fillRadio(group); filled = true; await sleep(100); }
     }
 
+    // After filling attempts, determine if all visible controls are filled
+    // Gather controls to check: visible selects, inputs (excluding hidden), textareas, checkboxes, radio groups
+    const controls = Array.from(document.querySelectorAll('input,textarea,select')).filter(c=>isVisible(c) && !c.disabled);
+
+    // For radios, check that each group has a checked option
+    const radioGroups = {};
+    controls.forEach(c=>{ if (c.type === 'radio') { if (!radioGroups[c.name]) radioGroups[c.name]=[]; radioGroups[c.name].push(c); } });
+
+    let allFilled = true;
+    for (const c of controls){
+      if (c.type === 'radio') continue; // skip, handled per group
+      if (c.type === 'hidden') continue;
+      if (!isControlFilled(c)) { allFilled = false; break; }
+    }
+    // check radio groups
+    for (const name in radioGroups){
+      const group = radioGroups[name].filter(r=>isVisible(r) && !r.disabled);
+      if (group.length && !group.some(r=>r.checked)) { allFilled = false; break; }
+    }
+
     if (filled) { filledCount++; sendStats(); }
-    return filled;
+    return { filled, allFilled };
   }
 
-  async function tryClickContinue(){
+  async function tryClickContinue(force = false){
     const continueBtn = findContinueBtn();
-    if (continueBtn && document.querySelectorAll('input:invalid,input:required:invalid,select:invalid,textarea:invalid').length === 0) {
-      try {
-        continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        // some forms submit on click, others on submit
-        if (continueBtn.tagName.toLowerCase() === 'input' && continueBtn.type === 'submit') {
-          (continueBtn.form || {}).submit && (continueBtn.form.submit());
-        }
-        return true;
-      } catch (e) { /* ignore */ }
-    }
+    if (!continueBtn) return false;
+    const invalids = document.querySelectorAll('input:invalid,input:required:invalid,select:invalid,textarea:invalid');
+    if (!force && invalids.length > 0) return false;
+    try {
+      continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      if (continueBtn.tagName.toLowerCase() === 'input' && continueBtn.type === 'submit') {
+        (continueBtn.form || {}).submit && (continueBtn.form.submit());
+      }
+      return true;
+    } catch (e) { /* ignore */ }
     return false;
   }
 
   async function runLoop(){
     while (isRunning) {
       try {
-        const filled = await fillPage();
+        const { filled, allFilled } = await fillPage();
         if (!isRunning) break;
-        if (filled) {
-          // try to submit / go to next step
-          const clicked = await tryClickContinue();
+
+        if (filled || allFilled) {
+          // if all fields are filled, force click continue (user requested)
+          const clicked = await tryClickContinue(allFilled);
           if (clicked) {
-            // wait a bit for navigation / UI update
             sendStats('waiting');
             await sleep(settings.submitDelay || 500);
-            // after navigation we continue
+            continue; // after navigation, continue loop
           } else {
-            // no continue button or invalid fields remain — wait and retry
+            // no continue button or click didn't happen — wait and retry
             await sleep(800);
+            continue;
           }
         } else {
           // nothing filled on this page — consider complete
