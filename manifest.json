@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "FormFiller Auto",
+  "version": "2.0.0",
+  "description": "Preenche formulários automaticamente com respostas aleatórias para testes",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
