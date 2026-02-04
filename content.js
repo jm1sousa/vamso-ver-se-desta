@@ -1,133 +1,117 @@
 (function() {
-  let isRunning = false;
-  let filledCount = 0;
-  let settings = { delay: 300, submitDelay: 500 };
-  let savedState = null;
+  let isRunning = false, filledCount = 0, settings = {}, savedState = null;
 
-  // Gerador de dados
-  const gen = {
-    characters: [
-      'Harry Potter','Hermione Granger','Ron Weasley','Frodo Baggins','Gandalf','Aragorn','Legolas','Leia Organa','Luke Skywalker','Darth Vader','Jon Snow','Daenerys Targaryen','Tyrion Lannister','Arya Stark','Bilbo Baggins'
-    ],
-    firstName: function() { return this.characters[Math.floor(Math.random()*this.characters.length)].split(' ')[0]; },
-    lastName: function() { return this.characters[Math.floor(Math.random()*this.characters.length)].split(' ').slice(1).join(''); },
-    fullName: function() { return this.characters[Math.floor(Math.random()*this.characters.length)]; },
-    email: function() { 
-      const c = this.characters[Math.floor(Math.random()*this.characters.length)];
-      const email = c.toLowerCase().replace(/[^a-z]/g,'') + '@swordhealth.com';
-      return email;
-    },
-    phone: function() { return ['91','92','93','96'][Math.floor(Math.random()*4)] + Math.floor(Math.random()*10000000).toString().padStart(7,'0'); },
-    number: function(min=1,max=100) { return Math.floor(Math.random()*(max-min+1))+min; },
-    date: function() {
-      const d = new Date();
-      const mm = (d.getMonth()+1).toString().padStart(2,'0');
-      const dd = d.getDate().toString().padStart(2,'0');
-      const yyyy = d.getFullYear();
-      return `${mm}/${dd}/${yyyy}`;
-    },
-    sentence: function() { return 'Texto de teste'; },
-    paragraph: function() { return 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.'; }
-  };
+  const fictionNames = ["Harry Potter","Hermione Granger","Ron Weasley","Frodo Baggins","Samwise Gamgee","Gandalf","Aragorn","Legolas","Katniss Everdeen","Peeta Mellark","Tony Stark","Bruce Wayne","Clark Kent","Diana Prince","Peter Parker"];
+  function randomName() { return fictionNames[Math.floor(Math.random()*fictionNames.length)]; }
+  function randomEmail() { 
+    const name = randomName().toLowerCase().replace(/[^a-z]/g,''); 
+    return `${name}@swordhealth.com`; 
+  }
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const isVisible = el => el && getComputedStyle(el).display !== 'none' && el.offsetParent !== null;
+  const isVisible = el => el && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && el.offsetParent !== null;
 
   function getLabel(f) {
-    if (f.id) { const l = document.querySelector(`label[for="${f.id}"]`); if(l) return l.textContent; }
-    const p = f.closest('label'); if(p) return p.textContent;
+    if (f.id) {
+      const l = document.querySelector(`label[for="${f.id}"]`);
+      if (l) return l.textContent;
+    }
+    const p = f.closest('label');
+    if (p) return p.textContent;
     return f.getAttribute('aria-label') || '';
   }
 
   function getValue(f) {
-    const n = (f.name||'').toLowerCase();
-    const t = (f.type||'').toLowerCase();
-    const lb = getLabel(f).toLowerCase();
-
-    if(t==='email' || n.includes('email') || lb.includes('email')) return gen.email();
-    if(t==='tel' || n.includes('phone') || lb.includes('phone')) return gen.phone();
-    if(t==='number') return gen.number(parseInt(f.min)||1, parseInt(f.max)||100).toString();
-    if(t==='date' || lb.includes('birth') || lb.includes('data')) return gen.date();
-    if(n.includes('firstname') || lb.includes('primeiro')) return gen.firstName();
-    if(n.includes('lastname') || lb.includes('apelido')) return gen.lastName();
-    if(n.includes('name') || lb.includes('nome')) return gen.fullName();
-    if(lb.includes('message') || f.tagName.toLowerCase()==='textarea') return gen.paragraph();
-    return gen.sentence();
+    const n = (f.name||'').toLowerCase(), id = (f.id||'').toLowerCase(), t = (f.type||'').toLowerCase(), ph = (f.placeholder||'').toLowerCase(), lb = getLabel(f).toLowerCase(), c = `${n} ${id} ${ph} ${lb}`;
+    if (t === 'email' || c.includes('email')) return randomEmail();
+    if (t === 'tel' || c.includes('phone') || c.includes('telefone') || c.includes('telemóvel')) return '91'+Math.floor(Math.random()*10000000).toString().padStart(7,'0');
+    if (c.includes('firstname') || c.includes('primeiro')) return randomName().split(' ')[0];
+    if (c.includes('lastname') || c.includes('apelido')) return randomName().split(' ')[1] || 'Smith';
+    if (c.includes('name') || c.includes('nome')) return randomName();
+    if (c.includes('address') || c.includes('morada')) return `Rua Exemplo ${Math.floor(Math.random()*100)}`;
+    if (c.includes('city') || c.includes('cidade')) return ['Lisboa','Porto','Braga','Coimbra','Faro'][Math.floor(Math.random()*4)];
+    if (c.includes('postal') || c.includes('zip')) return `${Math.floor(Math.random()*9000)+1000}-${Math.floor(Math.random()*900)+100}`;
+    if (c.includes('company') || c.includes('empresa')) return ['Tech','Global','Digital'][Math.floor(Math.random()*3)] + ' Corp';
+    if (c.includes('age') || c.includes('idade') || t==='number') return (Math.floor(Math.random()*50)+18).toString();
+    if (t==='date' || c.includes('birth') || c.includes('nascimento')) {
+      const d = new Date(1970+Math.floor(Math.random()*50), Math.floor(Math.random()*12), 1+Math.floor(Math.random()*28));
+      return `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}/${d.getFullYear()}`;
+    }
+    return "Teste automático";
   }
 
   async function fillField(f) {
-    if(!f || !isVisible(f) || f.disabled || f.readOnly) return;
-    const v = getValue(f);
-    f.focus();
-    f.value = '';
-    for(let i=0;i<v.length;i++){
-      f.value = v.substring(0,i+1);
-      f.dispatchEvent(new Event('input',{bubbles:true}));
-      await sleep(settings.delay);
-    }
+    if (!f) return;
+    let v = getValue(f);
+    if (!v) return;
+    if (f.type === 'number') v = v.replace(/\D/g,''); // números apenas
+    f.focus(); f.value = '';
+    for (let i=0;i<v.length;i++) { f.value = v.substring(0,i+1); f.dispatchEvent(new Event('input',{bubbles:true})); await sleep(settings.delay||200); }
     f.dispatchEvent(new Event('change',{bubbles:true}));
     f.blur();
   }
 
   function fillSelect(s) {
-    if(!s || !isVisible(s) || s.disabled || s.options.length===0) return;
-    for(const opt of s.options) {
-      if(opt.value && !opt.disabled) { s.value = opt.value; s.dispatchEvent(new Event('change',{bubbles:true})); break; }
+    if (!s) return;
+    const opts = [...s.options].filter(o=>o.value && !o.disabled);
+    if (opts.length) { s.selectedIndex = 0; s.dispatchEvent(new Event('change',{bubbles:true})); }
+  }
+
+  function fillCheckbox(c) {
+    if (c && !c.checked) { c.checked = true; c.dispatchEvent(new Event('change',{bubbles:true})); c.dispatchEvent(new Event('click',{bubbles:true})); }
+  }
+
+  function fillRadio(radios) {
+    if (radios.length) {
+      const r = radios.find(x=>!x.checked);
+      if(r){ r.checked=true; r.dispatchEvent(new Event('change',{bubbles:true})); }
     }
   }
 
-  function fillCheckbox(c) { if(isVisible(c) && !c.checked){ c.checked=true; c.dispatchEvent(new Event('change',{bubbles:true})); } }
-
-  function fillRadio(radios) { if(radios.length){ const r = radios.find(r=>isVisible(r) && !r.checked); if(r){ r.checked=true; r.dispatchEvent(new Event('change',{bubbles:true})); } } }
-
-  async function fillPage() {
-    const inputs = document.querySelectorAll('input,textarea');
-    const selects = document.querySelectorAll('select');
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-    const radioGroups = {};
-    document.querySelectorAll('input[type="radio"]').forEach(r => { if(!radioGroups[r.name]) radioGroups[r.name]=[]; radioGroups[r.name].push(r); });
-
-    let filled=false;
-
-    for(const f of inputs) { await fillField(f); filled=true; }
-    for(const s of selects) { fillSelect(s); filled=true; }
-    for(const c of checkboxes) { fillCheckbox(c); filled=true; }
-    for(const name in radioGroups) { fillRadio(radioGroups[name]); filled=true; }
-
-    if(filled){ filledCount++; saveState(); sendStats(); }
-
-    return filled;
-  }
-
   function findContinueBtn() {
-    const texts = ['continuar','próximo','seguinte','avançar','next','submit','enviar','confirmar'];
-    for(const btn of document.querySelectorAll('button,input[type="submit"],[role="button"]')){
-      if(!isVisible(btn) || btn.disabled) continue;
+    const texts = ['continuar','próximo','seguinte','avançar','continue','next','submit','enviar','confirmar'];
+    for (const btn of document.querySelectorAll('button,input[type="submit"],[role="button"]')) {
+      if(!isVisible(btn)||btn.disabled) continue;
       const txt = (btn.textContent||btn.value||'').toLowerCase();
       if(texts.some(t=>txt.includes(t))) return btn;
     }
     return null;
   }
 
-  function saveState() { savedState = { url: location.href, filledCount, timestamp: Date.now() }; chrome.storage.local.set({ formFillerState: savedState }); }
-  async function loadState() { return new Promise(r=>chrome.storage.local.get(['formFillerState'],d=>{ savedState=d.formFillerState||null; r(savedState); })); }
-  function clearState() { savedState=null; chrome.storage.local.remove(['formFillerState']); }
-  function sendStats(status='running'){ chrome.runtime.sendMessage({type:'statsUpdate', filledCount, status}); }
+  async function fillPage() {
+    if(!isRunning) return false;
+    const inputs = document.querySelectorAll('input,textarea');
+    const selects = document.querySelectorAll('select');
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const radios = {};
+    document.querySelectorAll('input[type="radio"]').forEach(r=>{ if(!radios[r.name]) radios[r.name]=[]; radios[r.name].push(r); });
 
-  async function runFiller() {
+    let filled=false;
+    for(const f of inputs){
+      if(!isRunning) return false;
+      if(isVisible(f) && !f.disabled && !f.readOnly && !f.value) { await fillField(f); filled=true; await sleep(settings.delay||300); }
+    }
+    for(const s of selects){
+      if(!isRunning) return false;
+      if(isVisible(s) && !s.disabled) { fillSelect(s); filled=true; await sleep(settings.delay||200); }
+    }
+    for(const c of checkboxes){
+      if(!isRunning) return false;
+      if(isVisible(c)) { fillCheckbox(c); filled=true; await sleep(100); }
+    }
+    for(const name in radios){
+      if(!isRunning) return false;
+      const group = radios[name].filter(r=>isVisible(r) && !r.disabled);
+      if(group.length && !group.some(r=>r.checked)){ fillRadio(group); filled=true; await sleep(100); }
+    }
+
+    if(filled) { filledCount++; sendStats(); }
+    return filled;
+  }
+
+  async function runFormFiller() {
     if(!isRunning) return;
     await fillPage();
 
-    const btn=findContinueBtn();
-    if(btn){ await sleep(settings.submitDelay); btn.click(); await sleep(1000); if(isRunning) runFiller(); }
-    else sendStats('waiting');
-  }
-
-  function stop() { isRunning=false; saveState(); chrome.runtime.sendMessage({type:'stopped'}); }
-
-  chrome.runtime.onMessage.addListener((msg)=>{
-    if(msg.action==='start'){ isRunning=true; settings=msg.settings||settings; if(msg.resume && savedState) filledCount=savedState.filledCount||0; else { filledCount=0; clearState(); } runFiller(); }
-    if(msg.action==='stop') stop();
-    if(msg.action==='getState') chrome.runtime.sendMessage({type:'statsUpdate', filledCount, status:'waiting'}); 
-  });
-})();
+    const continueBtn = findContinueBtn();
+    if(continueBtn && document.querySelectorAll('input:invalid,input:required:invalid').length===0) {
